@@ -10,6 +10,14 @@ fn uploadVGAGlyph(store: GlyphStore, vgaIndex: u8, glyphIndex: u16)
 	stack: u8[80];
 	dst: u32;
 
+	copyVGAGlyph(stack[], 0x00u, 0xffu, vgaIndex, 8);
+	store.uploadGlyph(glyphIndex, stack);
+}
+
+fn copyVGAGlyph(target: scope u8[], clear: u8, full: u8, vgaIndex: u8, dstStride: u32)
+{
+	dst: u32;
+
 	// Go from index to coordinate.
 	x := vgaIndex % 16u;
 	y := vgaIndex / 16u;
@@ -22,11 +30,10 @@ fn uploadVGAGlyph(store: GlyphStore, vgaIndex: u8, glyphIndex: u16)
 			src := (posX / GlyphWidth);
 			sub := (posX % GlyphWidth);
 			data := (glyphData[posY][src] >> sub) & 1;
-			stack[dst++] = cast(u8)(data ? 0xffu : 0u);
+			target[dst++] = cast(u8)(data ? full : clear);
 		}
+		dst += dstStride - GlyphWidth;
 	}
-
-	store.uploadGlyph(glyphIndex, stack);
 }
 
 enum u32 Width = 128;

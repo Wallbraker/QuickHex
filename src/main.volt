@@ -1,13 +1,13 @@
 module main;
 
 import io = watt.io;
-import watt.algorithm;
 import watt.io.file : read;
 import watt.path : getExecFile;
 import watt.text.format;
 
 import lib.gl;
 import hex.core;
+import hex.view;
 import hex.ui.key;
 import hex.ui.gl.glyph;
 import hex.ui.gl.vga;
@@ -19,8 +19,31 @@ fn main(args: string[]) i32
 	return app.run();
 }
 
+
 class App
 {
+private:
+	enum Color : u32 {
+		White = 0xFF_FF_FF_FFu,
+		Red   = 0xFF_00_00_FFu,
+		Green = 0xFF_00_FF_00u,
+		Blue  = 0xFF_FF_00_00u,
+		Black = 0xFF_00_00_00u,
+
+		DarkGrey = 0xFF_10_10_10u,
+
+		AmigaBg    = 0xFF_AF_57_00u,
+		AmigaFg    = 0xFF_FF_FF_FFu,
+		AmigaSelBg = 0xFF_00_88_FFu,
+		AmigaSelFg = 0xFF_20_00_00u,
+	}
+
+	enum {
+		DataColor,
+		DecorationColor,
+	}
+
+
 private:
 	mRenderer: GlyphRenderer;
 	mGlyphs: GlyphStore;
@@ -28,21 +51,10 @@ private:
 	mArgs: string[];
 	mCore: Core;
 	mWin: Window;
-	mFG, mBG, mSelFG, mSelBG: Color;
 
+	mView: View;
 	mData: u8[];
-	mOffsetInRows: i64;
-	mMaxOffset: i64;
 
-	mCurX, mCurY: u32;
-
-	enum Color : u32 {
-		White = 0xFF_FF_FF_FFu,
-		Red   = 0xFF_00_00_FFu,
-		Green = 0xFF_00_FF_00u,
-		Blue  = 0xFF_FF_00_00u,
-		Black = 0xFF_00_00_00u,
-	}
 
 
 public:
@@ -54,7 +66,7 @@ public:
 
 		mCore = Core.create();
 		mWin = mCore.createWindow();
-		mWin.title = format("QuickHex - %s", filename);
+		mWin.title = "QuickHex";
 		mWin.onText = onText;
 		mWin.onDestroy = onDestroy;
 		mWin.onKeyDown = onKeyDown;
@@ -67,19 +79,14 @@ public:
 		// Setup glyph size and store
 		mGlyphs := new GlyphStore(GlyphWidth, GlyphHeight);
 		foreach (index; 0u .. 256u) {
-			mGlyphs.uploadVGAGlyph(cast(u8)index, cast(u16)index);
+			uploadVGAGlyph(mGlyphs, cast(u8)index, cast(u16)index);
 		}
 
 		// And then setup the renderer.
 		mGrid = new GlyphGrid(mRenderer, mGlyphs, mWin.width, mWin.height);
 
-		// Setup the default colors.
-		mFG = Color.White;
-		mBG = Color.Black;
-		mSelFG = Color.Green;
-		mSelBG = Color.Blue;
-
 		mapFile(filename);
+		mapGlyphs();
 	}
 
 	fn run() i32
@@ -90,11 +97,39 @@ public:
 	fn mapFile(filename: string)
 	{
 		mData = cast(u8[])read(filename);
-		mMaxOffset = cast(i64)(mData.length / 16);
+		mWin.title = format("QuickHex - %s", filename);
+		mView.setup(mData.length, 16, mGrid.numGlyphsY);
+	}
+
+	fn mapGlyphs()
+	{
+		glyphSize := hex.ui.gl.vga.GlyphWidth * hex.ui.gl.vga.GlyphHeight;
+		mData = new u8[](glyphSize * 256);
+
+		foreach (i; 0u .. 256u) {
+			dst := i * glyphSize;
+			copyVGAGlyph(mData[dst .. $], 0, 0xDBu, cast(u8)i, 8);
+		}
+
+		mView.setup(mData.length, 8, mGrid.numGlyphsY);
 	}
 
 
 private:
+	fn getColors(address: size_t, colorType: i32, out fg: Color, out bg: Color)
+	{
+		if (colorType == DataColor && isHit(address)) {
+			bg = Color.Blue;
+			fg = Color.Green;
+		} else if ((address / mView.width) % 4 < 2) {
+			bg = Color.Black;
+			fg = Color.White;
+		} else {
+			bg = Color.DarkGrey;
+			fg = Color.White;
+		}
+	}
+
 	fn onDestroy()
 	{
 		if (mGlyphs !is null) {
@@ -111,6 +146,7 @@ private:
 	{
 		glViewport(0, 0, cast(int)mWin.width, cast(int)mWin.height);
 		mGrid.setScreenSize(mWin.width, mWin.height);
+		mView.setup(mData.length, 16, mGrid.numGlyphsY);
 	}
 
 	fn onText(str: const(char)[])
@@ -120,40 +156,15 @@ private:
 	fn onKeyDown(key: Key, mod: Mod)
 	{
 		switch (key) with (Key) {
-		case Down:     cursorMove(  0,   1); break;
-		case Up:       cursorMove(  0,  -1); break;
-		case Left:     cursorMove( -1,   0); break;
-		case Right:    cursorMove(  1,   0); break;
-		case PageUp:   cursorMove(  0, -40); break;
-		case PageDown: cursorMove(  0,  40); break;
+		case Down:     mView.add(mView.width); break;
+		case Up:       mView.sub(mView.width); break;
+		case Left:     mView.sub(         1); break;
+		case Right:    mView.add(         1); break;
+		case PageUp:   mView.sub(       128); break;
+		case PageDown: mView.add(       128); break;
 		case Escape: mCore.signalClose(); break;
 		case Unknown: default:
 		}
-	}
-
-	fn cursorMove(x: i32, y: i32)
-	{
-		x += cast(i32)mCurX;
-		y += cast(i32)mCurY;
-
-		mCurX = cast(u32)max(min(15, x), 0);
-
-		if (y < 0) {
-			mCurY = 0;
-			moveOffset(y);
-		} else if (y >= cast(i32)mGrid.numGlyphsY) {
-			diff := (y + 1) - cast(i32)mGrid.numGlyphsY;
-			moveOffset(diff);
-			mCurY = mGrid.numGlyphsY - 1;
-		} else {
-			mCurY = cast(u32)y;
-		}
-	}
-
-	fn moveOffset(diff: i64)
-	{
-		diff += mOffsetInRows;
-		mOffsetInRows = max(min(mMaxOffset, diff), 0);
 	}
 
 	fn onRender()
@@ -164,36 +175,38 @@ private:
 
 	fn updateAll()
 	{
-		address := cast(u64)(mOffsetInRows * 16);
+		address := mView.screenTopInBytes;
 		foreach (y; 0 .. mGrid.numGlyphsY) {
 			if (address >= mData.length) {
-				clearLine(y);
+				clearLine(address, y);
 			} else {
 				updateLine(address, y);
 			}
-			address += 0x10;
+			address += mView.width;
 		}
 	}
 
-	fn updateLine(address: u64, targetRow: u32)
+	fn updateLine(address: size_t, targetRow: u32)
 	{
+		fg, bg: Color;
+		getColors(address, DecorationColor, out fg, out bg);
+
 		// Start with showing the address.
 		column: u32;
 		foreach (i; 0u .. (64u/4u)) {
 			c := toHex(address >> (64u - 4u - i * 4));
-			mGrid.put(column++, targetRow, mFG, mBG, c);
+			mGrid.put(column++, targetRow, fg, bg, c);
 		}
 
-		// Pad out to column 10.
-		column = 18;
-
-		fg, bg: Color;
+		// Two spaces
+		mGrid.put(column++, targetRow, fg, bg, ' ');
+		mGrid.put(column++, targetRow, fg, bg, ' ');
 
 		// Display the data as hex values.
-		foreach (i; 0u .. 16u) {
-			getColors(i, targetRow, out fg, out bg);
-
+		foreach (i; 0u .. mView.width) {
 			sel := i + address;
+			getColors(sel, DataColor, out fg, out bg);
+
 			if (sel < mData.length) {
 				d := mData[sel];
 				mGrid.put(column++, targetRow, fg, bg, toHex(d >> 4u));
@@ -202,66 +215,57 @@ private:
 				mGrid.put(column++, targetRow, fg, bg, ' ');
 				mGrid.put(column++, targetRow, fg, bg, ' ');
 			}
-			column += i == 7 ? 2 : 1;
-		}
 
-		// Pad out to column (16 + 2 + 16 * 2 + 1 + 2)
-		column = 69;
-
-		// Display the value as VGA characters.
-		mGrid.put(column++, targetRow, mFG, mBG, 0x7C);
-		foreach (i; 0u .. 16u) {
-			getColors(i, targetRow, out fg, out bg);
-
-			sel := i + address;
-			if (sel < mData.length) {
-				d := mData[sel];
-				mGrid.put(column++, targetRow, fg, bg, d);
-			} else {
+			getColors(sel, DecorationColor, out fg, out bg);
+			mGrid.put(column++, targetRow, fg, bg, ' ');
+			if (i == 7) {
 				mGrid.put(column++, targetRow, fg, bg, ' ');
 			}
 		}
 
-		// Pad out to column (8 + 2 + 16 * 2 + 1 + 2 + 1 + 16)
-		column = 86;
-		mGrid.put(column++, targetRow, mFG, mBG, 0x7C);
-	}
+		// Two spaces
+		mGrid.put(column++, targetRow, fg, bg, ' ');
+		mGrid.put(column++, targetRow, fg, bg, ' ');
 
-	fn clearLine(targetRow: u32)
-	{
-		foreach (x; 0 .. mGrid.numGlyphsX) {
-			mGrid.put(x, targetRow, mFG, mBG, ' ');
-		}
+		// Draw a separator
+		mGrid.put(column++, targetRow, fg, bg, 0x7C);
 
-		if (targetRow != mCurY) {
-			return;
-		}
+		// Display the value as VGA characters.
+		foreach (i; 0u .. mView.width) {
+			sel := i + address;
+			getColors(sel, DataColor, out fg, out bg);
 
-		// Pad out to column 10.
-		column := 18u;
-
-		// Draw the cursor outside of the file.
-		foreach (i; 0u .. 16u) {
-			if (isHit(i, targetRow)) {
-				mGrid.put(column++, targetRow, mSelFG, mSelBG, ' ');
-				mGrid.put(column++, targetRow, mSelFG, mSelBG, ' ');
+			if (sel < mData.length) {
+				d := mData[sel];
+				mGrid.put(column++, targetRow, fg, bg, d);
 			} else {
-				column += 2;
+				mGrid.put(column++, targetRow, fg, bg, '.');
 			}
-			column += i == 7 ? 2 : 1;
+		}
+
+		// Draw a separator
+		getColors(address, DecorationColor, out fg, out bg);
+		mGrid.put(column++, targetRow, fg, bg, 0x7C);
+
+		// Fill out the screen.
+		foreach (i; column .. mGrid.numGlyphsX) {
+			mGrid.put(column++, targetRow, fg, bg, ' ');
 		}
 	}
 
-	fn isHit(x: u32, y: u32) bool
+	fn clearLine(address: size_t, targetRow: u32)
 	{
-		return mCurX == x && mCurY == y;
+		fg, bg: Color;
+		getColors(address, DecorationColor, out fg, out bg);
+
+		foreach (x; 0 .. mGrid.numGlyphsX) {
+			mGrid.put(x, targetRow, fg, bg, ' ');
+		}
 	}
 
-	fn getColors(x: u32, y: u32, out fg: Color, out bg: Color)
+	fn isHit(address: size_t) bool
 	{
-		hit := isHit(x, y);
-		fg = hit ? mSelFG : mFG;
-		bg = hit ? mSelBG : mBG;
+		return mView.address == address;
 	}
 
 	enum HEX_DIGITS = "0123456789abcdef";

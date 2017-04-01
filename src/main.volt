@@ -4,6 +4,7 @@ import io = watt.io;
 import watt.algorithm;
 import watt.io.file : read;
 import watt.path : getExecFile;
+import watt.text.format;
 
 import lib.gl;
 import hex.core;
@@ -47,11 +48,13 @@ private:
 public:
 	this(args: string[])
 	{
+		filename := args.length > 1 ? args[1] : getExecFile();
+
 		mArgs = args;
 
 		mCore = Core.create();
 		mWin = mCore.createWindow();
-		mWin.title = "QuickHex";
+		mWin.title = format("QuickHex - %s", filename);
 		mWin.onText = onText;
 		mWin.onDestroy = onDestroy;
 		mWin.onKeyDown = onKeyDown;
@@ -76,12 +79,7 @@ public:
 		mSelFG = Color.Green;
 		mSelBG = Color.Blue;
 
-		// Setup the data view.
-		if (args.length > 1) {
-			mapFile(args[1]);
-		} else {
-			mapFile(getExecFile());
-		}
+		mapFile(filename);
 	}
 
 	fn run() i32

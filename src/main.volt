@@ -54,6 +54,7 @@ private:
 	mWin: Window;
 
 	mView: View;
+	mDrawBits: bool;
 	mData: u8[];
 
 
@@ -99,19 +100,32 @@ public:
 		mData = cast(u8[])read(filename);
 		mWin.title = format("QuickHex - %s", filename);
 		mView.setup(mData.length, 16, mGrid.numGlyphsY);
+		mDrawBits = true;
 	}
 
 	fn mapGlyphs()
 	{
-		glyphSize := hex.ui.gl.vga.GlyphWidth * hex.ui.gl.vga.GlyphHeight;
+		glyphSize := hex.ui.gl.vga.GlyphHeight;
 		mData = new u8[](glyphSize * 256);
 
 		foreach (i; 0u .. 256u) {
 			dst := i * glyphSize;
-			copyVGAGlyph(mData[dst .. $], 0, 0xDBu, cast(u8)i, 8);
+			copyVGAGlyphBits(mData[dst .. $], cast(u8)i);
 		}
 
-		mView.setup(mData.length, 8, mGrid.numGlyphsY);
+		mView.setup(mData.length * 8, 8, mGrid.numGlyphsY);
+		mDrawBits = true;
+	}
+
+	fn dumpVGA()
+	{
+		foreach (i, d; mData) {
+			io.output.writef(`\x%02x`, d);
+			if (i % 10 == 9) {
+				io.output.writefln("");
+			}
+		}
+		io.output.flush();
 	}
 
 
@@ -146,7 +160,8 @@ private:
 	{
 		glViewport(0, 0, cast(int)mWin.width, cast(int)mWin.height);
 		mGrid.setScreenSize(mWin.width, mWin.height);
-		mView.setup(mData.length, 16, mGrid.numGlyphsY);
+		// Just reset the numbers of rows.
+		mView.setup(mView.size, mView.width, mGrid.numGlyphsY);
 	}
 
 	fn onText(str: const(char)[])
@@ -169,24 +184,28 @@ private:
 
 	fn onRender()
 	{
-		updateAll();
+		if (mDrawBits) {
+			drawBits();
+		} else {
+			drawHex();
+		}
 		mGrid.render();
 	}
 
-	fn updateAll()
+	fn drawHex()
 	{
 		address := mView.screenTopInBytes;
 		foreach (y; 0 .. mGrid.numGlyphsY) {
 			if (address >= mData.length) {
-				clearLine(address, y);
+				drawEmptLine(address, y);
 			} else {
-				updateLine(address, y);
+				drawHexLine(address, y);
 			}
 			address += mView.width;
 		}
 	}
 
-	fn updateLine(address: size_t, targetRow: u32)
+	fn drawHexLine(address: size_t, targetRow: u32)
 	{
 		draw: DrawState;
 		draw.reset(mGrid, targetRow);
@@ -247,7 +266,92 @@ private:
 		}
 	}
 
-	fn clearLine(address: size_t, targetRow: u32)
+	fn drawBits()
+	{
+		address := mView.screenTopInBytes;
+		foreach (y; 0 .. mGrid.numGlyphsY) {
+			if (address >= mView.size) {
+				drawEmptLine(address, y);
+			} else {
+				drawLineBits(address, y);
+			}
+			address += mView.width;
+		}
+	}
+
+	fn drawLineBits(address: size_t, targetRow: u32)
+	{
+		draw: DrawState;
+		draw.reset(mGrid, targetRow);
+		getColors(ref draw, address, DecorationColor);
+
+		// Start with showing the address.
+		draw.drawHex16(address / 8);
+
+		// Two spaces
+		draw.drawChar(' ');
+		draw.drawChar(' ');
+
+		// Display the data as hex values.
+		foreach (i; 0u .. mView.width) {
+			viewAddress := i + address;
+			elemt := viewAddress / 8;
+			shift := viewAddress % 8;
+
+			getColors(ref draw, viewAddress, DataColor);
+
+			if (elemt < mData.length) {
+				d := mData[elemt] >> shift & 1;
+				draw.drawChar(d ? '1' : '0');
+			} else {
+				draw.drawChar(' ');
+			}
+
+			getColors(ref draw, viewAddress, DecorationColor);
+		}
+
+		// Two spaces
+		draw.drawChar(' ');
+		draw.drawChar(' ');
+
+		// Draw a separator
+		draw.drawChar(0x7C);
+
+		// Display the value as VGA characters.
+		foreach (i; 0u .. mView.width) {
+			viewAddress := i + address;
+			elemt := viewAddress / 8;
+			shift := viewAddress % 8;
+
+			getColors(ref draw, viewAddress, DataColor);
+
+			if (elemt < mData.length) {
+				d := mData[elemt] >> shift & 1;
+				draw.drawChar(d ? 0xDB : ' ');
+			} else {
+				draw.drawChar('.');
+			}
+		}
+
+		// Draw a separator
+		getColors(ref draw, address, DecorationColor);
+		draw.drawChar(0x7C);
+
+		if (targetRow < 16) {
+			draw.drawChar(' ');
+			start := targetRow * 16;
+			foreach (i; start .. start + 16) {
+				draw.drawChar(cast(u8)i);
+			}
+		}
+
+		// Fill out the screen.
+		foreach (i; draw.column .. mGrid.numGlyphsX) {
+			draw.drawChar(' ');
+		}
+	}
+
+	fn drawEmptLine(address: size_t, targetRow: u32)
 	{
 		fg, bg: Color;
 		draw: DrawState;

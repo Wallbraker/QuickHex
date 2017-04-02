@@ -8,6 +8,7 @@ import watt.text.format;
 import lib.gl;
 import hex.core;
 import hex.view;
+import hex.drawstate;
 import hex.ui.key;
 import hex.ui.gl.glyph;
 import hex.ui.gl.vga;
@@ -54,7 +55,6 @@ private:
 
 	mView: View;
 	mData: u8[];
-
 
 
 public:
@@ -116,17 +116,17 @@ public:
 
 
 private:
-	fn getColors(address: size_t, colorType: i32, out fg: Color, out bg: Color)
+	fn getColors(ref draw: DrawState, address: size_t, colorType: i32)
 	{
 		if (colorType == DataColor && isHit(address)) {
-			bg = Color.Blue;
-			fg = Color.Green;
+			draw.bg = Color.Blue;
+			draw.fg = Color.Green;
 		} else if ((address / mView.width) % 4 < 2) {
-			bg = Color.Black;
-			fg = Color.White;
+			draw.bg = Color.Black;
+			draw.fg = Color.White;
 		} else {
-			bg = Color.DarkGrey;
-			fg = Color.White;
+			draw.bg = Color.DarkGrey;
+			draw.fg = Color.White;
 		}
 	}
 
@@ -188,75 +188,71 @@ private:
 
 	fn updateLine(address: size_t, targetRow: u32)
 	{
-		fg, bg: Color;
-		getColors(address, DecorationColor, out fg, out bg);
+		draw: DrawState;
+		draw.reset(mGrid, targetRow);
+		getColors(ref draw, address, DecorationColor);
 
 		// Start with showing the address.
-		column: u32;
-		foreach (i; 0u .. (64u/4u)) {
-			c := toHex(address >> (64u - 4u - i * 4));
-			mGrid.put(column++, targetRow, fg, bg, c);
-		}
+		draw.drawHex16(address);
 
 		// Two spaces
-		mGrid.put(column++, targetRow, fg, bg, ' ');
-		mGrid.put(column++, targetRow, fg, bg, ' ');
+		draw.drawChar(' ');
+		draw.drawChar(' ');
 
 		// Display the data as hex values.
 		foreach (i; 0u .. mView.width) {
 			sel := i + address;
-			getColors(sel, DataColor, out fg, out bg);
+			getColors(ref draw, sel, DataColor);
 
 			if (sel < mData.length) {
-				d := mData[sel];
-				mGrid.put(column++, targetRow, fg, bg, toHex(d >> 4u));
-				mGrid.put(column++, targetRow, fg, bg, toHex(d >> 0u));
+				draw.drawHex2(mData[sel]);
 			} else {
-				mGrid.put(column++, targetRow, fg, bg, ' ');
-				mGrid.put(column++, targetRow, fg, bg, ' ');
+				draw.drawChar(' ');
 			}
 
-			getColors(sel, DecorationColor, out fg, out bg);
-			mGrid.put(column++, targetRow, fg, bg, ' ');
+			getColors(ref draw, sel, DecorationColor);
+			draw.drawChar(' ');
 			if (i == 7) {
-				mGrid.put(column++, targetRow, fg, bg, ' ');
+				draw.drawChar(' ');
 			}
 		}
 
 		// Two spaces
-		mGrid.put(column++, targetRow, fg, bg, ' ');
-		mGrid.put(column++, targetRow, fg, bg, ' ');
+		draw.drawChar(' ');
+		draw.drawChar(' ');
 
 		// Draw a separator
-		mGrid.put(column++, targetRow, fg, bg, 0x7C);
+		draw.drawChar(0x7C);
 
 		// Display the value as VGA characters.
 		foreach (i; 0u .. mView.width) {
 			sel := i + address;
-			getColors(sel, DataColor, out fg, out bg);
+			getColors(ref draw, sel, DataColor);
 
 			if (sel < mData.length) {
 				d := mData[sel];
-				mGrid.put(column++, targetRow, fg, bg, d);
+				draw.drawChar(d);
 			} else {
-				mGrid.put(column++, targetRow, fg, bg, '.');
+				draw.drawChar('.');
 			}
 		}
 
 		// Draw a separator
-		getColors(address, DecorationColor, out fg, out bg);
-		mGrid.put(column++, targetRow, fg, bg, 0x7C);
+		getColors(ref draw, address, DecorationColor);
+		draw.drawChar(0x7C);
 
 		// Fill out the screen.
-		foreach (i; column .. mGrid.numGlyphsX) {
-			mGrid.put(column++, targetRow, fg, bg, ' ');
+		foreach (i; draw.column .. mGrid.numGlyphsX) {
+			draw.drawChar(' ');
 		}
 	}
 
 	fn clearLine(address: size_t, targetRow: u32)
 	{
 		fg, bg: Color;
-		getColors(address, DecorationColor, out fg, out bg);
+		draw: DrawState;
+		draw.reset(mGrid, targetRow);
+		getColors(ref draw, address, DecorationColor);
 
 		foreach (x; 0 .. mGrid.numGlyphsX) {
 			mGrid.put(x, targetRow, fg, bg, ' ');
@@ -266,12 +262,5 @@ private:
 	fn isHit(address: size_t) bool
 	{
 		return mView.address == address;
-	}
-
-	enum HEX_DIGITS = "0123456789abcdef";
-
-	static fn toHex(v: u64) u8
-	{
-		return HEX_DIGITS[v & 0xf];
 	}
 }

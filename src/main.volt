@@ -214,7 +214,7 @@ private:
 		address := mView.screenTopInBytes;
 		foreach (y; 0 .. mGrid.numGlyphsY) {
 			if (address >= mData.length) {
-				drawEmptLine(address, y);
+				drawEmptyLine(address, y);
 			} else {
 				drawHexLine(address, y);
 			}
@@ -289,7 +289,7 @@ private:
 		address := mView.screenTopInBytes;
 		foreach (y; 0 .. mGrid.numGlyphsY) {
 			if (address >= mView.size) {
-				drawEmptLine(address, y);
+				drawEmptyLine(address, y);
 			} else {
 				drawLineBits(address, y);
 			}
@@ -369,15 +369,14 @@ private:
 		}
 	}
 
-	fn drawEmptLine(address: size_t, targetRow: u32)
+	fn drawEmptyLine(address: size_t, targetRow: u32)
 	{
-		fg, bg: Color;
 		draw: DrawState;
 		draw.reset(mGrid, targetRow);
 		getColors(ref draw, address, DecorationColor);
 
 		foreach (x; 0 .. mGrid.numGlyphsX) {
-			mGrid.put(x, targetRow, fg, bg, ' ');
+			draw.drawChar(' ');
 		}
 	}
 

@@ -57,6 +57,7 @@ private:
 	mDrawBits: bool;
 	mData: u8[];
 
+	mEdit: dg();
 
 public:
 	this(args: string[])
@@ -78,7 +79,7 @@ public:
 		mRenderer := new GlyphRenderer();
 
 		// Setup glyph size and store
-		mGlyphs := new GlyphStore(GlyphWidth, GlyphHeight);
+		mGlyphs = new GlyphStore(GlyphWidth, GlyphHeight);
 		foreach (index; 0u .. 256u) {
 			uploadVGAGlyph(mGlyphs, cast(u8)index, cast(u16)index);
 		}
@@ -86,8 +87,8 @@ public:
 		// And then setup the renderer.
 		mGrid = new GlyphGrid(mRenderer, mGlyphs, mWin.width, mWin.height);
 
+		mEdit = nopEdit;
 		mapFile(filename);
-		mapGlyphs();
 	}
 
 	fn run() i32
@@ -100,7 +101,8 @@ public:
 		mData = cast(u8[])read(filename);
 		mWin.title = format("QuickHex - %s", filename);
 		mView.setup(mData.length, 16, mGrid.numGlyphsY);
-		mDrawBits = true;
+		mDrawBits = false;
+		mEdit = nopEdit;
 	}
 
 	fn mapGlyphs()
@@ -115,6 +117,7 @@ public:
 
 		mView.setup(mData.length * 8, 8, mGrid.numGlyphsY);
 		mDrawBits = true;
+		mEdit = editVGA;
 	}
 
 	fn dumpVGA()
@@ -130,6 +133,19 @@ public:
 
 
 private:
+	fn editVGA()
+	{
+		elemt := mView.address / 8;
+		shift := mView.address % 8;
+		mData[elemt] ^= cast(u8)(1 << shift);
+
+		index := elemt / hex.ui.gl.vga.GlyphHeight;
+		start := index * hex.ui.gl.vga.GlyphHeight;
+		end := start + hex.ui.gl.vga.GlyphHeight;
+		//io.writefln("%s %s %s", index, start, end);
+		uploadVGAGlyph(mGlyphs, mData[start .. end], cast(u16)index);
+	}
+
 	fn getColors(ref draw: DrawState, address: size_t, colorType: i32)
 	{
 		if (colorType == DataColor && isHit(address)) {
@@ -178,6 +194,7 @@ private:
 		case PageUp:   mView.sub(       128); break;
 		case PageDown: mView.add(       128); break;
 		case Escape: mCore.signalClose(); break;
+		case ' ': mEdit(); break;
 		case Unknown: default:
 		}
 	}
@@ -226,6 +243,7 @@ private:
 			if (sel < mData.length) {
 				draw.drawHex2(mData[sel]);
 			} else {
+				draw.drawChar(' ');
 				draw.drawChar(' ');
 			}
 
@@ -367,4 +385,6 @@ private:
 	{
 		return mView.address == address;
 	}
+
+	fn nopEdit() {}
 }

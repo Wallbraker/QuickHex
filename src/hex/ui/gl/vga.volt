@@ -7,21 +7,27 @@ import hex.ui.gl.glyph;
 
 fn uploadVGAGlyph(store: GlyphStore, vgaIndex: u8, glyphIndex: u16)
 {
-	stack: u8[80];
-	dst: u32;
+	src := cast(const(u8)[])glyphData[vgaIndex];
+	uploadVGAGlyph(store, src, glyphIndex);
+}
 
-	copyVGAGlyph(stack[], 0x00u, 0xffu, vgaIndex, 8);
+fn uploadVGAGlyph(store: GlyphStore, src: scope const(u8)[], glyphIndex: u16)
+{
+	stack: u8[80];
+	copyVGAGlyph(stack[], src, 8);
 	store.uploadGlyph(glyphIndex, stack);
 }
 
-fn copyVGAGlyph(target: scope u8[], clear: u8, full: u8, vgaIndex: u8, dstStride: u32)
+fn copyVGAGlyph(target: scope u8[], src: scope const(u8)[], dstStride: u32)
 {
+	clear: u8 = 0x00;
+	full: u8 = 0xff;
 	dst: u32;
 
 	foreach (lY; 0 .. GlyphHeight) {
 		foreach (lX; 0 .. GlyphWidth) {
-			data := (glyphData[vgaIndex][lY] >> lX) & 1;
-			target[dst++] = cast(u8)(data ? full : clear);
+			data := (src[lY] >> lX) & 1;
+			target[dst++] = data ? full : clear;
 		}
 		dst += dstStride - GlyphWidth;
 	}

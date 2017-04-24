@@ -180,7 +180,7 @@ private:
 		mView.setup(mView.size, mView.width, mGrid.numGlyphsY);
 	}
 
-	fn onText(str: const(char)[])
+	fn onText(str: scope const(char)[])
 	{
 	}
 

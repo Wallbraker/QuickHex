@@ -75,5 +75,4 @@ fn translateKey(sdlkc: SDL_Keycode) Key
 			return Key.Unknown;
 		}
 	}
-	assert(false);
 }
